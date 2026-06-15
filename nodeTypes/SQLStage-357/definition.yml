@@ -1,0 +1,63 @@
+fileVersion: 2
+id: "357"
+isDisabled: false
+metadata:
+  defaultStorageLocation: null
+  error: null
+  nodeMetadataSpec: |
+    capitalized: SQL Stage
+    short: STG
+    plural: SQL Stages
+    tagColor: '#2EB67D'
+
+    config: 
+    - groupName: Options
+      items:
+      - type: materializationSelector
+        default: table
+        options:
+        - table
+        - view
+        isRequired: true
+
+      - displayName: Transient Table
+        attributeName: transient
+        type: toggleButton
+        default: true
+        enableIf: "{{ node.materializationType == 'table' }}"
+
+      - displayName: Truncate Before
+        attributeName: truncateBefore
+        type: toggleButton
+        default: true
+        enableIf: "{{ node.materializationType == 'table' }}"
+        
+      - displayName: Insert Strategy
+        attributeName: insertStrategy
+        type: dropdownSelector
+        default: INSERT
+        enableIf: "{{ node.materializationType == 'table' and not config.truncateBefore }}"
+        options:
+        - INSERT
+        - MERGE
+      
+      - displayName: |
+          ⚠️ When using MERGE:
+          Add @isBusinessKey annotation to columns in your final SELECT statement
+        attributeName: note
+        type: note
+        enableIf: "{{ config.insertStrategy == 'MERGE' and node.materializationType == 'table' and not config.truncateBefore }}"
+
+      - displayName: Pre-SQL
+        attributeName: preSQL
+        type: textBox
+        syntax: sql
+        isRequired: false
+
+      - displayName: Post-SQL
+        attributeName: postSQL
+        type: textBox
+        syntax: sql
+        isRequired: false
+name: SQL Stage
+type: NodeType

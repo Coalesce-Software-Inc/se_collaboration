@@ -1,0 +1,96 @@
+{#
+    Copyright (c) 2026 Coalesce. All rights reserved.
+This script and its associated documentation are confidential and proprietary to Coalesce.
+Unauthorized reproduction, distribution, or disclosure of this material is strictly prohibited.
+Coalesce permits you to copy and modify this script for the purposes of using with Coalesce but
+does not permit copying or modification for any other purpose.
+#}
+{# == Node Type Name           : SQL Stage  == #}
+{# == Node Type Description    : This node creates work table or view  == #}
+{#---------------------------------------------------------------------------------------------#}
+
+{%- if config.preSQL -%}
+
+    {{ stage('Pre-SQL') }}
+    {{ config.preSQL }}
+
+{%- endif -%}
+
+{%- if config.truncateBefore -%}
+
+    {{ stage('Truncate Table') }}
+    TRUNCATE TABLE {{ ref_no_link(node.location.name, node.name) }}
+
+{%- endif -%}
+
+{%- if config.insertStrategy|lower == 'merge' and not config.truncateBefore -%}
+    {{ stage('Merge Data') }}
+
+    {%- if columns | selectattr('isBusinessKey') | list | length == 0 %}
+        {%- set error = 'No business key defined' %}
+    {%- endif %}
+
+    {%- if error -%}
+
+        EXECUTE IMMEDIATE $$
+        DECLARE COALESCE_CONFIG EXCEPTION (-20001, '{{error}}');
+        BEGIN RAISE COALESCE_CONFIG;
+        END;
+        $$;
+
+    {%- else -%}
+
+        MERGE INTO {{ ref_no_link(node.location.name, node.name) }} TGT
+        USING (
+        {% for source in sources %}
+            {{ source.cteString }}
+            SELECT
+            {% for col in source.columns %}
+                {{ get_source_transform(col) }} AS "{{ col.name }}"{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            {{ source.join }}
+        {% endfor %}
+        ) SRC
+        ON {% for col in columns if col.isBusinessKey %}{% if not loop.first %} AND {% endif %}TGT."{{ col.name }}" = SRC."{{ col.name }}"{% endfor %}
+        WHEN MATCHED THEN UPDATE SET
+            {% for col in columns %}
+                TGT."{{ col.name }}" = SRC."{{ col.name }}"{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        WHEN NOT MATCHED THEN INSERT (
+            {% for col in columns %}
+                "{{ col.name }}"{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        ) VALUES (
+            {% for col in columns %}
+                SRC."{{ col.name }}"{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        )
+    {%- endif -%}
+
+{%- else -%}
+
+    {{ stage('Insert Data') }}
+    INSERT INTO {{ ref_no_link(node.location.name, node.name) }}
+    (
+        {% for col in columns %}
+            "{{ col.name }}"{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    )
+    {% for source in sources %}
+        {{ source.cteString }}
+        SELECT
+        {% for col in source.columns %}
+            {{ get_source_transform(col) }} AS "{{ col.name }}"{% if not loop.last %}, {% endif %}
+        {% endfor %}
+        {{ source.join }}
+        {% if not loop.last %}UNION ALL{% endif %}
+    {% endfor %}
+
+{%- endif -%}
+
+{%- if config.postSQL -%}
+
+    {{ stage('Post-SQL') }}
+    {{ config.postSQL }}
+
+{%- endif -%}
